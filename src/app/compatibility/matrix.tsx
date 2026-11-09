@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
@@ -110,7 +110,6 @@ export default function CompatibilityMatrix() {
             className="w-full rounded-full border border-slate-300 bg-white py-2.5 pl-10 pr-4 text-sm text-slate-900 placeholder:text-slate-400 shadow-xs outline-none transition focus:border-brand-500 focus:ring-1 focus:ring-brand-500 dark:border-white/12 dark:bg-white/[0.04] dark:text-frost-100 dark:placeholder:text-frost-600 dark:shadow-none dark:focus:border-brand-400/60 dark:focus:ring-0"
           />
         </div>
-
         <div
           className="flex flex-wrap gap-2"
           role="group"
@@ -134,7 +133,6 @@ export default function CompatibilityMatrix() {
           ))}
         </div>
       </div>
-
       {visible.length === 0 ? (
         <p
           role="status"
@@ -152,7 +150,6 @@ export default function CompatibilityMatrix() {
                   <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-frost-600">
                     {kind === "source" ? "Sources" : "Targets"}
                   </h2>
-
                   <ul className="space-y-3">
                     <AnimatePresence initial={false}>
                       {groups[kind].map((item) => (
@@ -176,7 +173,6 @@ export default function CompatibilityMatrix() {
                               {item.detail}
                             </p>
                           </div>
-
                           <Badge status={item.status} />
                         </motion.li>
                       ))}
