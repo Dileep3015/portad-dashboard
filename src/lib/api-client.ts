@@ -198,9 +198,12 @@ export async function fetchWithTimeout(
   }
 }
 
+
+
 /**
- * Fetches dynamic platform adapter capabilities from PortaD core API.
- * Gracefully falls back to bundled catalog if network or server fails.
+ * Fetches dynamic platform provider capabilities from PortaD Core API.
+ * Normalizes Core's providers contract into the Dashboard adapter model.
+ * Gracefully falls back to the bundled catalog if the API is unavailable.
  */
 export async function fetchCapabilities(): Promise<ApiResult<AdapterCapability[]>> {
   const result = await fetchWithTimeout(`${API_URL}/api/v1/capabilities`);
@@ -213,95 +216,91 @@ export async function fetchCapabilities(): Promise<ApiResult<AdapterCapability[]
     };
   }
 
-  // Validate response schema
   const payload = result.data as {
-    status?: string;
-    adapters?: Array<{
-      id?: string;
-      name?: string;
-      direction?: "source" | "target" | "both";
-      status?: "Supported" | "Planned";
-      description?: string;
-      supported_features?: string[];
-    }>;
-  };
+    providers?: unknown;
+  } | null;
 
-  if (!payload || !Array.isArray(payload.adapters)) {
+  if (!payload || !Array.isArray(payload.providers)) {
     return {
       data: FALLBACK_ENTRIES,
       error: {
         kind: "malformed",
-        message: "Response missing expected 'adapters' list.",
+        message: "Response missing expected 'providers' list.",
       },
       isFallback: true,
     };
   }
 
   const entries: AdapterCapability[] = [];
-  try {
-    for (const a of payload.adapters) {
-      if (
-        !a ||
-        typeof a !== "object" ||
-        Array.isArray(a) ||
-        (a.id !== undefined && typeof a.id !== "string") ||
-        (a.name !== undefined && typeof a.name !== "string") ||
-        (a.description !== undefined && typeof a.description !== "string") ||
-        (a.direction !== undefined &&
-          a.direction !== "source" &&
-          a.direction !== "target" &&
-          a.direction !== "both") ||
-        (!a.id && !a.name)
-      ) {
-        return {
-          data: FALLBACK_ENTRIES,
-          error: {
-            kind: "malformed",
-            message: "Response contains malformed adapter entries.",
-          },
-          isFallback: true,
-        };
-      }
-      const name = a.name || a.id || "Unknown";
-      const status: AdapterStatus = a.status === "Supported" ? "Supported" : "Planned";
-      const detail =
-        a.description ||
-        (Array.isArray(a.supported_features) ? a.supported_features.join(", ") : "");
-      const direction = a.direction || "both";
 
-      if (direction === "source" || direction === "both") {
-        entries.push({
-          id: `${a.id || name.toLowerCase()}-source`,
-          name,
-          kind: "source",
-          status,
-          detail,
-        });
-      }
-      if (direction === "target" || direction === "both") {
-        entries.push({
-          id: `${a.id || name.toLowerCase()}-target`,
-          name,
-          kind: "target",
-          status,
-          detail,
-        });
-      }
+  for (const provider of payload.providers) {
+    if (
+      !provider ||
+      typeof provider !== "object" ||
+      Array.isArray(provider)
+    ) {
+      return {
+        data: FALLBACK_ENTRIES,
+        error: {
+          kind: "malformed",
+          message: "Response contains malformed provider entries.",
+        },
+        isFallback: true,
+      };
     }
-  } catch {
-    return {
-      data: FALLBACK_ENTRIES,
-      error: {
-        kind: "malformed",
-        message: "Failed to parse adapter capabilities payload.",
-      },
-      isFallback: true,
+
+    const item = provider as {
+      name?: unknown;
+      direction?: unknown;
+      status?: unknown;
+      milestone?: unknown;
     };
+
+    if (
+      typeof item.name !== "string" ||
+      !item.name.trim() ||
+      (item.direction !== "source" &&
+        item.direction !== "target") ||
+      (item.status !== "implemented" &&
+        item.status !== "planned") ||
+      typeof item.milestone !== "string" ||
+      !item.milestone.trim()
+    ) {
+      return {
+        data: FALLBACK_ENTRIES,
+        error: {
+          kind: "malformed",
+          message: "Response contains malformed provider entries.",
+        },
+        isFallback: true,
+      };
+    }
+
+    const name = item.name.trim();
+
+    const kind: AdapterKind = item.direction;
+
+    const status: AdapterStatus =
+      item.status === "implemented" ? "Supported" : "Planned";
+
+    const detail = `Milestone ${item.milestone.trim()}`;
+
+    const idPrefix =
+      name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") ||
+      "provider";
+
+    entries.push({
+      id: `${idPrefix}-${kind}`,
+      name,
+      kind,
+      status,
+      detail,
+    });
   }
 
   return {
-    data: entries.length > 0 ? entries : FALLBACK_ENTRIES,
+    data: entries,
     error: null,
-    isFallback: entries.length === 0,
+    isFallback: false,
   };
 }

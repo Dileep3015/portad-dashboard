@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+﻿import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import CompatibilityMatrix from "./matrix";
@@ -56,6 +56,28 @@ describe("CompatibilityMatrix", () => {
       expect(screen.getByText("● Live Core API")).toBeDefined();
       expect(screen.getByText("LivePlatform")).toBeDefined();
     });
+  });
+
+  it("shows the empty state when Core returns no providers", async () => {
+    vi.spyOn(apiClient, "fetchCapabilities").mockResolvedValue({
+      data: [],
+      error: null,
+      isFallback: false,
+    });
+
+    render(<CompatibilityMatrix />);
+
+    await waitFor(() => {
+      expect(screen.getByText("● Live Core API")).toBeDefined();
+      expect(
+        screen.getByText(
+          "No platforms found. Try a different search or select another status filter.",
+        ),
+      ).toBeDefined();
+    });
+
+    expect(screen.queryByText("Notion")).toBeNull();
+    expect(screen.queryByText("Huly")).toBeNull();
   });
 
   it("filters items by search query", async () => {

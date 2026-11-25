@@ -1,3 +1,4 @@
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   FALLBACK_ENTRIES,
@@ -26,6 +27,7 @@ describe("api-client", () => {
 
       const res = await fetchWithTimeout("https://api.example.com/test");
       expect(res.ok).toBe(true);
+
       if (res.ok) {
         expect(res.data).toEqual({ status: "ok", count: 42 });
       }
@@ -40,6 +42,7 @@ describe("api-client", () => {
 
       const res = await fetchWithTimeout("https://api.example.com/test");
       expect(res.ok).toBe(false);
+
       if (!res.ok) {
         expect(res.error.kind).toBe("http");
         expect(res.error.statusCode).toBe(404);
@@ -58,6 +61,7 @@ describe("api-client", () => {
 
       const res = await fetchWithTimeout("https://api.example.com/test");
       expect(res.ok).toBe(false);
+
       if (!res.ok) {
         expect(res.error.kind).toBe("malformed");
         expect(res.error.message).toContain("invalid or unparseable JSON");
@@ -71,6 +75,7 @@ describe("api-client", () => {
 
       const res = await fetchWithTimeout("https://api.example.com/test", {}, 10);
       expect(res.ok).toBe(false);
+
       if (!res.ok) {
         expect(res.error.kind).toBe("timeout");
         expect(res.error.message).toContain("timed out");
@@ -91,6 +96,7 @@ describe("api-client", () => {
 
       const res = await fetchWithTimeout("https://api.example.com/test", {}, 10);
       expect(res.ok).toBe(false);
+
       if (!res.ok) {
         expect(res.error.kind).toBe("timeout");
         expect(res.error.message).toContain("timed out");
@@ -114,7 +120,9 @@ describe("api-client", () => {
         { signal: callerController.signal },
         5000,
       );
+
       expect(res.ok).toBe(false);
+
       if (!res.ok) {
         expect(res.error.kind).toBe("timeout");
         expect(res.error.message).toContain("timed out");
@@ -122,10 +130,13 @@ describe("api-client", () => {
     });
 
     it("returns network error when fetch throws network failure", async () => {
-      globalThis.fetch = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+      globalThis.fetch = vi.fn().mockRejectedValue(
+        new TypeError("Failed to fetch"),
+      );
 
       const res = await fetchWithTimeout("https://api.example.com/test");
       expect(res.ok).toBe(false);
+
       if (!res.ok) {
         expect(res.error.kind).toBe("network");
         expect(res.error.message).toContain("Failed to fetch");
@@ -134,39 +145,84 @@ describe("api-client", () => {
   });
 
   describe("fetchCapabilities", () => {
-    it("returns parsed capabilities from API when payload is valid", async () => {
+    it("normalizes valid Core providers into Dashboard capabilities", async () => {
       globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
         json: async () => ({
-          status: "ok",
-          adapters: [
+          providers: [
             {
-              id: "jira",
-              name: "Jira",
+              name: "Notion",
               direction: "source",
-              status: "Supported",
-              description: "Issues and epics",
+              status: "implemented",
+              milestone: "M3",
             },
             {
-              id: "linear",
-              name: "Linear",
+              name: "Huly",
               direction: "target",
-              status: "Supported",
-              description: "Issues and cycles",
+              status: "implemented",
+              milestone: "M6",
+            },
+            {
+              name: "Trello",
+              direction: "source",
+              status: "planned",
+              milestone: "v0.3",
             },
           ],
         }),
       });
 
       const res = await fetchCapabilities();
+
       expect(res.isFallback).toBe(false);
       expect(res.error).toBeNull();
-      expect(res.data.length).toBe(2);
-      expect(res.data[0].name).toBe("Jira");
-      expect(res.data[0].kind).toBe("source");
-      expect(res.data[1].name).toBe("Linear");
-      expect(res.data[1].kind).toBe("target");
+      expect(res.data).toEqual([
+        {
+          id: "notion-source",
+          name: "Notion",
+          kind: "source",
+          status: "Supported",
+          detail: "Milestone M3",
+        },
+        {
+          id: "huly-target",
+          name: "Huly",
+          kind: "target",
+          status: "Supported",
+          detail: "Milestone M6",
+        },
+        {
+          id: "trello-source",
+          name: "Trello",
+          kind: "source",
+          status: "Planned",
+          detail: "Milestone v0.3",
+        },
+      ]);
+    });
+
+    it("rejects providers with unsupported both direction", async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          providers: [
+            {
+              name: "Notion",
+              direction: "both",
+              status: "implemented",
+              milestone: "M3",
+            },
+          ],
+        }),
+      });
+
+      const res = await fetchCapabilities();
+
+      expect(res.isFallback).toBe(true);
+      expect(res.error?.kind).toBe("malformed");
+      expect(res.data).toEqual(FALLBACK_ENTRIES);
     });
 
     it("falls back to bundled entries when API returns non-200", async () => {
@@ -177,12 +233,13 @@ describe("api-client", () => {
       });
 
       const res = await fetchCapabilities();
+
       expect(res.isFallback).toBe(true);
       expect(res.error?.kind).toBe("http");
       expect(res.data).toEqual(FALLBACK_ENTRIES);
     });
 
-    it("falls back to bundled entries when payload is missing adapters array", async () => {
+    it("falls back when the providers array is missing", async () => {
       globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
@@ -190,42 +247,143 @@ describe("api-client", () => {
       });
 
       const res = await fetchCapabilities();
+
+      expect(res.isFallback).toBe(true);
+      expect(res.error?.kind).toBe("malformed");
+      expect(res.error?.message).toContain("providers");
+      expect(res.data).toEqual(FALLBACK_ENTRIES);
+    });
+
+    it("rejects the legacy adapters response contract", async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          adapters: [
+            {
+              id: "notion",
+              name: "Notion",
+              direction: "source",
+              status: "Supported",
+            },
+          ],
+        }),
+      });
+
+      const res = await fetchCapabilities();
+
       expect(res.isFallback).toBe(true);
       expect(res.error?.kind).toBe("malformed");
       expect(res.data).toEqual(FALLBACK_ENTRIES);
     });
 
-    it("falls back to bundled entries when adapters array contains malformed or null items", async () => {
+    it("returns an empty list when providers is empty", async () => {
       globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
         json: async () => ({
-          status: "ok",
-          adapters: [null, undefined, "invalid-adapter"],
+          providers: [],
         }),
       });
 
       const res = await fetchCapabilities();
+
+      expect(res.isFallback).toBe(false);
+      expect(res.error).toBeNull();
+      expect(res.data).toEqual([]);
+    });
+
+    it.each([
+      {
+        name: "Missing provider name",
+        provider: {
+          direction: "source",
+          status: "implemented",
+          milestone: "M3",
+        },
+      },
+      {
+        name: "Empty provider name",
+        provider: {
+          name: "   ",
+          direction: "source",
+          status: "implemented",
+          milestone: "M3",
+        },
+      },
+      {
+        name: "Invalid direction",
+        provider: {
+          name: "Notion",
+          direction: "invalid",
+          status: "implemented",
+          milestone: "M3",
+        },
+      },
+      {
+        name: "Invalid status",
+        provider: {
+          name: "Notion",
+          direction: "source",
+          status: "unknown",
+          milestone: "M3",
+        },
+      },
+      {
+        name: "Missing milestone",
+        provider: {
+          name: "Notion",
+          direction: "source",
+          status: "implemented",
+        },
+      },
+      {
+        name: "Non-string milestone",
+        provider: {
+          name: "Notion",
+          direction: "source",
+          status: "implemented",
+          milestone: 3,
+        },
+      },
+      {
+        name: "Whitespace-only milestone",
+        provider: {
+          name: "Notion",
+          direction: "source",
+          status: "implemented",
+          milestone: "   ",
+        },
+      },
+    ])("falls back for $name", async ({ provider }) => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          providers: [provider],
+        }),
+      });
+
+      const res = await fetchCapabilities();
+
       expect(res.isFallback).toBe(true);
       expect(res.error?.kind).toBe("malformed");
-      expect(res.error?.message).toContain("malformed");
       expect(res.data).toEqual(FALLBACK_ENTRIES);
     });
 
-    it("falls back to bundled entries when adapters array contains arrays, empty objects, or non-string ids", async () => {
+    it("falls back when providers contains arrays or empty objects", async () => {
       globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
         json: async () => ({
-          status: "ok",
-          adapters: [[], {}, { id: 123, name: "Invalid" }],
+          providers: [[], {}],
         }),
       });
 
       const res = await fetchCapabilities();
+
       expect(res.isFallback).toBe(true);
       expect(res.error?.kind).toBe("malformed");
-      expect(res.error?.message).toContain("malformed");
       expect(res.data).toEqual(FALLBACK_ENTRIES);
     });
   });
